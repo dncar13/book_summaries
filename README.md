@@ -61,15 +61,29 @@ supabase/migrations # 001 schema + policies, 002 content seed
    ```bash
    supabase db push             # or run 001_init.sql manually
    psql $SUPABASE_URL < supabase/migrations/002_seed.sql
+   psql $SUPABASE_URL < supabase/migrations/003_agents.sql
    ```
-   The second file mirrors `data/summaries.ts`, so database and local fallback stay in sync.
+   The second file mirrors `data/summaries.ts`, so database and local fallback stay in sync. The third file creates the `stories` content table, agent queue (`agent_runs`), helper view (`agent_open_jobs`), and the `take_agent_jobs` RPC that uses `FOR UPDATE SKIP LOCKED` for safe parallel runners.
 3. Confirm RLS:
    - `summaries`: `read_summaries` SELECT policy for anon.
    - `events`: `insert_events` INSERT policy only; revoke select/update/delete for anon, grant insert.
+   - `stories`: `read_stories` SELECT policy for anon.
+   - `agent_runs`: `service_only_agent_runs` restricts the queue to the service key.
 4. Optional TS seeder (uses the same env vars):
    ```bash
    npm run seed
    ```
+
+## Agents & Parallel Generation
+- **Service env** – add `SUPABASE_SERVICE_ROLE_KEY`, `AGENT_BATCH_SIZE` (default `4`), and optional `AGENT_LOOP_DELAY_MS` to `.env`. The service key never ships to the browser; it is only used by `/api/agents/enqueue`, the admin console, and `workers/runner.ts`.
+- **Pluggable providers + hedging** – `lib/llm/provider.ts` defines the interface (name, `maxConcurrent`, `callJSON`). `lib/llm/providers/index.ts` registers providers per kind; update this file with your Codex/Cloud provider adapters. `lib/llm/router.ts` fans out the same prompt across providers, validates via Zod, and returns the first success (`Promise.any`). Built-in concurrency control enforces `maxConcurrent` slots per provider.
+- **Schemas** – `lib/contentSchemas.ts` exports the `StoryDoc` and `CoverSpec` Zod validators plus TypeScript types. These correspond to the columns in `stories`.
+- **Prompts** – `lib/prompts/story.ts` has `storySystem()`/`storyUser()` plus optional outline + per-section prompts for the two-phase flow. `lib/prompts/cover.ts` contains the CoverSpec agent prompt. `lib/prompts/rewriter.ts` is the readability/safety gate used when you need to tame a story. Use these helpers when wiring Codex jobs so the prompt text always matches code.
+- **API enqueue** – `/api/agents/enqueue` accepts `{ kind: 'story'|'cover', items: [...] }`. Each row computes a `job_key` (`story:{slug|topic}`) so duplicates are rejected via a partial unique index on open jobs. The route requires the service-role env.
+- **Runner** – `workers/runner.ts` is the Cloud Code worker. Run via `npx tsx workers/runner.ts story` or `... cover`. Launch as many windows as needed (e.g. 3× story, 2× cover) to reach 16 in-flight jobs with `AGENT_BATCH_SIZE=4`. The runner pulls jobs with the `take_agent_jobs` RPC, calls `hedgeJSON`, writes `stories`, and updates `agent_runs`. It logs failures and keeps looping forever.
+- **Admin UI** – `/admin` (server-rendered) shows the queue, enqueues single stories, and batches “generate covers for uncovered stories.” It uses the service key on the server only. Refresh manually to see new queue snapshots.
+- **Two-phase option** – use `storyOutlineUser()` to lock the outline, then parallelize `storySectionUser()` calls per heading. After sections converge, run `storyUser()` once to add TL;DR, vocab, quiz. The prompts live in `lib/prompts/story.ts` so you can copy/paste straight into Codex.
+- **Quality gates** – plug the `rewriterSystem()`/`rewriterUser()` prompt into a separate queue kind if readability/moderation fails. You can enqueue rewrite jobs that target the same `job_key` so the uniqueness guard prevents racing.
 
 ## Analytics + Gamification
 - `lib/eventClient.ts` inserts into `events` with the anon key (insert-only).

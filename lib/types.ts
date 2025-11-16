@@ -1,3 +1,11 @@
+import type {
+  CoverSpecData,
+  StoryDocData,
+  StoryQuizQuestionData,
+  StorySectionData,
+  StoryVocabEntryData
+} from './contentSchemas';
+
 export type Summary = {
   id: string;
   slug: string;
@@ -10,6 +18,23 @@ export type Summary = {
   body_en: string;
   created_at?: string | null;
   cover_seed?: string | null;
+};
+
+export type StoryLevel = StoryDocData['level'];
+
+export type StorySection = StorySectionData;
+export type StoryVocabEntry = StoryVocabEntryData;
+export type StoryQuizQuestion = StoryQuizQuestionData;
+export type CoverSpec = CoverSpecData;
+export type StoryDoc = StoryDocData;
+
+export type StoryRow = StoryDoc & {
+  id: string;
+  cover_spec: CoverSpec | null;
+  cover_svg: string | null;
+  published_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type EventType =
@@ -30,6 +55,23 @@ export type EventRow = {
   ts: string | null;
 };
 
+export type AgentRunKind = 'story' | 'cover';
+export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export type AgentRunRow = {
+  id: string;
+  kind: AgentRunKind;
+  status: AgentRunStatus;
+  job_key: string | null;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  metrics: Record<string, unknown> | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -37,15 +79,54 @@ export type Database = {
         Row: SummaryRow;
         Insert: Omit<SummaryRow, 'id'> & { id?: string };
         Update: Partial<SummaryRow>;
+        Relationships: [];
+      };
+      stories: {
+        Row: StoryRow;
+        Insert: Omit<StoryRow, 'id' | 'created_at' | 'updated_at' | 'cover_spec' | 'cover_svg' | 'published_at'> & {
+          id?: string;
+          cover_spec?: CoverSpec | null;
+          cover_svg?: string | null;
+          published_at?: string | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: Partial<StoryRow>;
+        Relationships: [];
       };
       events: {
         Row: EventRow;
         Insert: Omit<EventRow, 'id' | 'ts'> & { ts?: string | null };
         Update: Partial<EventRow>;
+        Relationships: [];
+      };
+      agent_runs: {
+        Row: AgentRunRow;
+        Insert: Omit<AgentRunRow, 'id' | 'output' | 'error' | 'metrics' | 'started_at' | 'finished_at' | 'created_at'> & {
+          id?: string;
+          output?: AgentRunRow['output'];
+          error?: string | null;
+          metrics?: AgentRunRow['metrics'];
+          started_at?: string | null;
+          finished_at?: string | null;
+          created_at?: string | null;
+        };
+        Update: Partial<AgentRunRow>;
+        Relationships: [];
       };
     };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Views: {
+      agent_open_jobs: {
+        Row: AgentRunRow;
+        Relationships: [];
+      };
+    };
+    Functions: {
+      take_agent_jobs: {
+        Args: { p_kind: AgentRunKind; p_limit: number };
+        Returns: AgentRunRow[];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
