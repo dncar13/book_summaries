@@ -30,46 +30,120 @@ supabase/migrations # 001 schema + policies, 002 content seed
 ```
 
 ## Getting Started
-1. Install dependencies (pnpm recommended, npm works):
+
+### Prerequisites
+- Node.js 18+ (tested with Node.js 20)
+- npm or pnpm
+
+### Installation & Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/dncar13/book_summaries.git
+   cd book_summaries
+   ```
+
+2. **Install dependencies:**
    ```bash
    npm install
    ```
-2. Copy `.env.example` → `.env` and fill:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_SITE_URL` (e.g. `http://localhost:3000`)
-3. Run dev server:
+   > The project uses `npm` and pins `next@14.2.3` because newer binaries (14.2.33+) crash with `SIGBUS` in certain environments. If you encounter startup issues, ensure you're using exactly version 14.2.3.
+
+3. **Configure environment variables:**
+   
+   The project is pre-configured to use a shared Supabase database. A `.env` file has been created with the necessary credentials:
+   
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://llyunioulzfbgqvmeaxq.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=[configured]
+   NEXT_PUBLIC_SITE_URL=http://localhost:8080
+   SUPABASE_SERVICE_ROLE_KEY=[configured]
+   ```
+   
+   > **Note:** This project shares the same Supabase database as [amiram-5570e405](https://github.com/dncar13/amiram-5570e405). The credentials are already configured in `.env`.
+
+4. **Run dev server:**
    ```bash
    npm run dev -- -p 8080
    ```
-4. Lint/type-check:
-   ```bash
-   npm run lint
-   npx tsc --noEmit
-   ```
-5. Production build:
-   ```bash
-   npm run build
-   npm run start
-   ```
+   
+   The app will be available at [http://localhost:8080](http://localhost:8080)
 
-> **Note:** The project pins `next@14.2.3` because newer binaries crash (`SIGBUS`) in this environment. Keep that version unless you verify a newer one locally.
+5. **Verify the setup:**
+   - Server should show: `✓ Ready in ~1-2s`
+   - Browser should load the Hebrew UI homepage
+   - Check browser console for any Supabase connection errors
+
+### Additional Commands
+
+- **Lint/type-check:**
+  ```bash
+  npm run lint
+  npx tsc --noEmit
+  ```
+
+- **Production build:**
+  ```bash
+  npm run build
+  npm run start
+  ```
+
+### Troubleshooting
+
+#### Server crashes immediately on startup
+**Symptom:** Server starts but exits before showing "Ready"
+
+**Solution:** This is caused by Next.js 14.2.33+ having a SIGBUS crash. The project should be pinned to `14.2.3`:
+```bash
+rm -rf node_modules package-lock.json .next
+npm install
+npm run dev -- -p 8080
+```
+
+#### Port 8080 already in use
+```bash
+# Kill existing process
+pkill -f "next dev"
+# Or use a different port
+npm run dev -- -p 3000
+```
+
+#### Missing Supabase credentials
+If you see "Missing required Supabase configuration", verify that `.env` exists and contains the correct values. You can reference `.env.example` for the expected format.
 
 ## Supabase Setup
-1. Create a Supabase project.
+
+**The database is already configured and shared with the [amiram-5570e405](https://github.com/dncar13/amiram-5570e405) project.**
+
+### Database Structure
+The Supabase instance includes:
+- `summaries` table - stores the learning stories
+- `events` table - anonymous analytics tracking
+- RLS policies configured for public read access on summaries
+
+### If you need to set up a new Supabase instance:
+
+1. Create a Supabase project at [supabase.com](https://supabase.com)
 2. Run SQL migrations in order:
    ```bash
    supabase db push             # or run 001_init.sql manually
    psql $SUPABASE_URL < supabase/migrations/002_seed.sql
    psql $SUPABASE_URL < supabase/migrations/003_agents.sql
    ```
-   The second file mirrors `data/summaries.ts`, so database and local fallback stay in sync. The third file creates the `stories` content table, agent queue (`agent_runs`), helper view (`agent_open_jobs`), and the `take_agent_jobs` RPC that uses `FOR UPDATE SKIP LOCKED` for safe parallel runners.
-3. Confirm RLS:
-   - `summaries`: `read_summaries` SELECT policy for anon.
-   - `events`: `insert_events` INSERT policy only; revoke select/update/delete for anon, grant insert.
-   - `stories`: `read_stories` SELECT policy for anon.
-   - `agent_runs`: `service_only_agent_runs` restricts the queue to the service key.
-4. Optional TS seeder (uses the same env vars):
+   The migrations create tables, policies, and seed initial content from `data/summaries.ts`.
+
+3. Update `.env` with your new credentials:
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   ```
+
+4. Confirm RLS policies:
+   - `summaries`: `read_summaries` SELECT policy for anon role
+   - `events`: `insert_events` INSERT policy only (no select/update/delete for anon)
+
+5. Optional TS seeder (uses the env vars):
    ```bash
    npm run seed
    ```
