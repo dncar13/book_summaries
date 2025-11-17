@@ -1,10 +1,6 @@
-import type {
-  CoverSpecData,
-  StoryDocData,
-  StoryQuizQuestionData,
-  StorySectionData,
-  StoryVocabEntryData
-} from './contentSchemas';
+import { Section, VocabItem, QuizItem } from './contentSchemas';
+import type { StoryDocT, CoverSpecT } from './contentSchemas';
+import type { z } from 'zod';
 
 export type Summary = {
   id: string;
@@ -18,15 +14,23 @@ export type Summary = {
   body_en: string;
   created_at?: string | null;
   cover_seed?: string | null;
+  audio_url?: string | null;
+  audio_parts?: string[] | null;
 };
 
-export type StoryLevel = StoryDocData['level'];
+export type WordGlossaryEntry = {
+  base: string;
+  forms: string[];
+  translationHe: string;
+};
 
-export type StorySection = StorySectionData;
-export type StoryVocabEntry = StoryVocabEntryData;
-export type StoryQuizQuestion = StoryQuizQuestionData;
-export type CoverSpec = CoverSpecData;
-export type StoryDoc = StoryDocData;
+export type StoryLevel = StoryDocT['level'];
+
+export type StorySection = z.infer<typeof Section>;
+export type StoryVocabEntry = z.infer<typeof VocabItem>;
+export type StoryQuizQuestion = z.infer<typeof QuizItem>;
+export type CoverSpec = CoverSpecT;
+export type StoryDoc = StoryDocT;
 
 export type StoryRow = StoryDoc & {
   id: string;
@@ -35,6 +39,8 @@ export type StoryRow = StoryDoc & {
   published_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  audio_url?: string | null;
+  audio_parts?: string[] | null;
 };
 
 export type EventType =
@@ -43,7 +49,13 @@ export type EventType =
   | 'finish_summary'
   | 'toggle_theme'
   | 'start_onboarding'
-  | 'finish_onboarding';
+  | 'finish_onboarding'
+  | 'audio_play'
+  | 'audio_pause'
+  | 'audio_next'
+  | 'audio_prev'
+  | 'audio_end'
+  | 'audio_error';
 
 export type SummaryRow = Summary & { created_at: string | null };
 

@@ -1,22 +1,13 @@
-const COVER_SYSTEM_PROMPT = `You design programmatic, copyright-safe, text-only book covers as JSON specs
-for an SVG renderer. Focus on abstract geometric compositions. No people, no logos.
-Return STRICT JSON only.`;
+export const coverSystem = () => `
+You design programmatic, copyright-safe, text-only book covers as JSON specs for an SVG renderer.
+Focus on abstract geometric compositions. No people, no logos. Return STRICT JSON only.
+`.trim();
 
-export function coverSystem() {
-  return COVER_SYSTEM_PROMPT;
-}
-
-type CoverPromptInput = {
-  title_en: string;
-  genre: string;
-  hook: string;
-};
-
-export function coverUser({ title_en, genre, hook }: CoverPromptInput) {
-  return `Create a cover spec for the story:
-Title: "${title_en}"
-Genre: "${genre}"
-Mood: based on this hook: "${hook}"
+export const coverUser = (p: { title_en: string; genre: string; hook: string }) => `
+Create a cover spec for the story:
+Title: "${p.title_en}"
+Genre: "${p.genre}"
+Mood: based on this hook: "${p.hook}"
 Constraints:
 - Palette: bg, fg, accent as hex
 - Motif: one of ["abstract","city","forest","ocean","mountains"]
@@ -31,5 +22,5 @@ JSON keys ONLY:
   "shapes": [{ "type": "circle"|"rect"|"wave"|"arc", "count": number, "sizeRange": [number,number], "noise": number }],
   "typography": { "titleCase": "uppercase"|"title"|"sentence", "weight": number, "letterSpacing": number }
 }
-Return strictly JSON without markdown code fences.`;
-}
+Return strictly JSON without markdown code fences.
+`.trim();

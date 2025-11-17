@@ -1,53 +1,26 @@
 import 'dotenv/config';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabaseClient } from '@/lib/supabaseAdmin';
 import { hedgeJSON } from '@/lib/llm/router';
 import { getProvidersFor } from '@/lib/llm/providers';
 import { StoryDoc, CoverSpec } from '@/lib/contentSchemas';
 import { storySystem, storyUser } from '@/lib/prompts/story';
 import { coverSystem, coverUser } from '@/lib/prompts/cover';
-import type { AgentRunKind, AgentRunRow, StoryLevel } from '@/lib/types';
-import type { Database } from '@/lib/types';
+import { quickReadabilityCheck } from '@/lib/readability';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for the runner.');
-}
-
-const supabase = createClient<Database>(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false }
-});
-
+const supa = getServiceSupabaseClient();
 const BATCH = parseInt(process.env.AGENT_BATCH_SIZE ?? '4', 10);
 const LOOP_DELAY_MS = parseInt(process.env.AGENT_LOOP_DELAY_MS ?? '1000', 10);
 
-type StoryJobInput = {
-  topic: string;
-  level: StoryLevel;
-  minutes: number;
-  genre?: string;
-};
+type Kind = 'story'|'cover';
 
-type CoverJobInput = {
-  slug: string;
-  title_en: string;
-  genre: string;
-  hook: string;
-};
-
-async function takeJobs(kind: AgentRunKind, limit: number) {
-  const { data, error } = await supabase.rpc('take_agent_jobs', {
-    p_kind: kind,
-    p_limit: limit
-  });
-  if (error) {
-    throw error;
-  }
-  return (data ?? []) as AgentRunRow[];
+async function takeJobs(kind: Kind, n: number) {
+  const { data, error } = await supa.rpc('take_agent_jobs', { p_kind: kind, p_limit: n });
+  if (error) throw error;
+  return data as any[];
 }
 
-async function runStoryJob(job: AgentRunRow, input: StoryJobInput) {
+async function runStoryJob(job: any) {
+  const input = job.input as { topic: string; level?: 'B1'|'B2'; minutes?: number; genre?: string };
   const { provider, data } = await hedgeJSON(
     getProvidersFor('story'),
     storySystem(),
@@ -55,98 +28,83 @@ async function runStoryJob(job: AgentRunRow, input: StoryJobInput) {
     StoryDoc
   );
 
-  const row = {
-    ...data,
-    updated_at: new Date().toISOString()
-  };
+  const quality = quickReadabilityCheck(data.body_en);
 
-  await supabase.from('stories').upsert(row, { onConflict: 'slug' });
-  await supabase
-    .from('agent_runs')
-    .update({
-      status: 'succeeded',
-      output: { provider, slug: data.slug },
-      finished_at: new Date().toISOString()
-    })
-    .eq('id', job.id);
+  const { error: upsertErr } = await supa.from('stories').upsert({
+    slug: data.slug,
+    title_en: data.title_en,
+    level: data.level,
+    reading_minutes: data.reading_minutes,
+    genre: data.genre,
+    hook: data.hook,
+    tldr_he: data.tldr_he,
+    body_en: data.body_en,
+    sections: data.sections,
+    vocab: data.vocab,
+    quiz: data.quiz,
+    topics: data.topics,
+    cover_spec: data.cover_spec ?? null,
+    audio_url: null
+  });
+  if (upsertErr) throw upsertErr;
+
+  await supa.from('agent_runs').update({
+    status: 'succeeded',
+    output: { provider, slug: data.slug, quality },
+    finished_at: new Date().toISOString()
+  }).eq('id', job.id);
 }
 
-async function runCoverJob(job: AgentRunRow, input: CoverJobInput) {
+async function runCoverJob(job: any) {
+  const input = job.input as { slug: string; title_en: string; genre: string; hook: string };
   const { provider, data } = await hedgeJSON(
     getProvidersFor('cover'),
     coverSystem(),
-    coverUser(input),
+    coverUser({ title_en: input.title_en, genre: input.genre, hook: input.hook }),
     CoverSpec
   );
 
-  await supabase
-    .from('stories')
-    .update({ cover_spec: data, updated_at: new Date().toISOString() })
-    .eq('slug', input.slug);
+  const { error } = await supa.from('stories').update({ cover_spec: data }).eq('slug', input.slug);
+  if (error) throw error;
 
-  await supabase
-    .from('agent_runs')
-    .update({
-      status: 'succeeded',
-      output: { provider, slug: input.slug },
-      finished_at: new Date().toISOString()
-    })
-    .eq('id', job.id);
+  await supa.from('agent_runs').update({
+    status: 'succeeded',
+    output: { provider },
+    finished_at: new Date().toISOString()
+  }).eq('id', job.id);
 }
 
-async function runJob(job: AgentRunRow) {
+async function runJob(job: any) {
   try {
     if (job.kind === 'story') {
-      await runStoryJob(job, job.input as StoryJobInput);
+      await runStoryJob(job);
     } else if (job.kind === 'cover') {
-      await runCoverJob(job, job.input as CoverJobInput);
+      await runCoverJob(job);
     } else {
-      throw new Error(`Unsupported job kind ${job.kind}`);
+      throw new Error(`Unknown kind ${job.kind}`);
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await supabase
-      .from('agent_runs')
-      .update({
-        status: 'failed',
-        error: message,
-        finished_at: new Date().toISOString()
-      })
-      .eq('id', job.id);
-    console.error(`[runner] job ${job.id} failed: ${message}`);
+  } catch (e: any) {
+    await supa.from('agent_runs').update({
+      status: 'failed',
+      error: String(e),
+      finished_at: new Date().toISOString()
+    }).eq('id', job.id);
   }
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export async function mainLoop(kind: AgentRunKind) {
-  console.info(`[runner] starting loop for kind=${kind} batch=${BATCH}`);
+export async function mainLoop(kind: Kind) {
   while (true) {
-    try {
-      const jobs = await takeJobs(kind, BATCH);
-      if (jobs.length) {
-        await Promise.all(jobs.map(runJob));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[runner] loop error: ${message}`);
-      await sleep(LOOP_DELAY_MS);
-    }
-    await sleep(LOOP_DELAY_MS);
+    const jobs = await takeJobs(kind, BATCH);
+    await Promise.all(jobs.map(runJob));
+    await new Promise(r => setTimeout(r, LOOP_DELAY_MS));
   }
 }
 
+// CLI: npx tsx workers/runner.ts story|cover
 if (require.main === module) {
-  const argKind = (process.argv[2] as AgentRunKind) ?? (process.env.AGENT_KIND as AgentRunKind);
-  if (!argKind || !['story', 'cover'].includes(argKind)) {
-    console.error('Usage: tsx workers/runner.ts <story|cover>');
-    process.exit(1);
-  }
-
-  mainLoop(argKind).catch((error) => {
-    console.error(error);
+  const kind = (process.argv[2] as Kind) || 'story';
+  mainLoop(kind).catch((e) => {
+    console.error('Runner fatal error:', e);
     process.exit(1);
   });
 }

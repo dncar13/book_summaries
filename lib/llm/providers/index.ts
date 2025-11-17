@@ -1,20 +1,14 @@
-import type { AgentRunKind } from '@/lib/types';
 import type { ModelProvider } from '../provider';
+import { openAIProvider } from './openai';
+import { anthropicProvider } from './anthropic';
 
-const providerRegistry: Partial<Record<AgentRunKind, ModelProvider[]>> = {};
+export function getProvidersFor(kind: 'story'|'cover'|'rewriter'): ModelProvider[] {
+  const list: ModelProvider[] = [];
+  if (process.env.OPENAI_API_KEY) list.push(openAIProvider);
+  if (process.env.ANTHROPIC_API_KEY) list.push(anthropicProvider);
 
-export function registerProviders(kind: AgentRunKind, providers: ModelProvider[]) {
-  providerRegistry[kind] = providers;
+  // אם תרצה להגביל cover לספק אחד:
+  if (kind === 'cover') return list.filter(p => p.name === 'openai');
+
+  return list;
 }
-
-export function getProvidersFor(kind: AgentRunKind) {
-  const providers = providerRegistry[kind];
-  if (!providers || providers.length === 0) {
-    throw new Error(`No LLM providers configured for ${kind}. Add entries in lib/llm/providers.`);
-  }
-  return providers;
-}
-
-// Example placeholder configuration—replace with real providers under lib/llm/providers.
-registerProviders('story', []);
-registerProviders('cover', []);

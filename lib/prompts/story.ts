@@ -1,33 +1,21 @@
-import type { StoryLevel } from '@/lib/types';
-
-const STORY_SYSTEM_PROMPT = `You are a content generator for LearnFlow.
+export const storySystem = () => `
+You are a content generator for LearnFlow.
 Produce original B1–B2 English stories (~12–15 minutes reading),
 with a 3–4 line Hebrew TL;DR. Avoid copyrighted plots, quotes, or book titles.
 Return STRICT JSON only that matches the given schema keys. No explanations.
 Before returning, internally self-check: (1) B1–B2 readability, (2) safety & age-appropriateness,
-(3) originality (no known titles/characters), (4) length targets. If any check fails, fix and only then return JSON.`;
+(3) originality (no known titles/characters), (4) length targets. If any check fails, fix and only then return JSON.
+`.trim();
 
-export function storySystem() {
-  return STORY_SYSTEM_PROMPT;
-}
-
-type StoryPromptInput = {
-  topic: string;
-  level: StoryLevel;
-  minutes: number;
-  genre?: string;
-};
-
-export function storyUser({ topic, level, minutes, genre }: StoryPromptInput) {
-  const desiredGenre = genre?.trim() || 'general fiction';
-  return `Goal: Create one story about: "${topic}"
+export const storyUser = (p: { topic: string; level?: 'B1'|'B2'; minutes?: number; genre?: string; }) => `
+Goal: Create one story about: "${p.topic}"
 Constraints:
-- English body length target: 1800–2200 words, level ${level} (B1/B2)
+- English body length target: 1800–2200 words, level ${p.level ?? 'B1'} (B1/B2)
 - Structure: 4–6 sections with short headings
 - Include: 5 MCQ comprehension questions; vocabulary list (<=15 items) with Hebrew translations
 - Include: Hebrew TL;DR of 3–4 short lines
-- Genre: ${desiredGenre}
-- Reading minutes: ${minutes}
+- Genre: ${p.genre ?? 'general fiction'}
+- Reading minutes: ${p.minutes ?? 13}
 - Topics tags: 1–5 tags
 Output JSON object with these keys ONLY:
 {
@@ -44,37 +32,39 @@ Output JSON object with these keys ONLY:
   "quiz": [{"q": string, "a": [string,string,string,string], "correct": 0|1|2|3}] (length 5),
   "topics": [string, ... up to 5]
 }
-Return strictly JSON without markdown code fences.`;
-}
+Return strictly JSON without markdown code fences.
+`.trim();
 
-export function storyOutlineUser(input: StoryPromptInput) {
-  const desiredGenre = input.genre?.trim() || 'general fiction';
-  return `Goal: Create a clean outline for a story about "${input.topic}" at ${input.level} level.
-Constraints:
-- Outline only: include {title_en, hook, sections:[{heading, bullet_outline}]}
-- Genre: ${desiredGenre}
-- Reading minutes target: ${input.minutes}
-- Sections: 4–6 max with logical beats
-- Keep TL;DR, vocab, and quiz for later phases
-Return STRICT JSON with keys { "title_en": string, "hook": string, "sections": [{"heading": string, "bullet_outline": string}] }`;
+export const outlineUser = (p: { topic: string; level?: 'B1'|'B2'; genre?: string }) => `
+Create an outline for a B1–B2 English story about "${p.topic}" (genre: ${p.genre ?? 'general fiction'}).
+Return JSON with:
+{
+  "title_en": string,
+  "hook": string,
+  "sections": [{"heading": string, "bullets": [string, string, ...]}] (length 4–6)
 }
+`.trim();
 
-export function storySectionUser({
-  heading,
-  bulletOutline,
-  outline,
-  level
-}: {
-  heading: string;
-  bulletOutline: string;
-  outline: string;
-  level: StoryLevel;
-}) {
-  return `Heading: ${heading}
-Target level: ${level}
-Outline context:
-${outline}
+export const sectionUser = (p: { heading: string; bullets: string[]; level?: 'B1'|'B2' }) => `
+Write one section titled "${p.heading}" for a ${p.level ?? 'B1'} story.
+Follow these bullets strictly: ${p.bullets.join(' • ')}.
+Return JSON:
+{ "heading": "${p.heading}", "text": string (>=300 words) }
+Return ONLY JSON.
+`.trim();
 
-Rewrite the outline above into a polished narrative section (250–400 words) in English at ${level} level.
-Keep coherence with the outline and return only the paragraph text.`;
-}
+export const rewriterSystem = () => `
+You are a language level controller. Given an English story,
+rewrite it to match B1–B2 constraints without changing the plot.
+Keep sentences short-to-medium, reduce rare idioms, keep coherence and section boundaries.
+Return ONLY the rewritten story text.
+`.trim();
+
+export const rewriterUser = (p: { level: 'B1'|'B2'; body_en: string }) => `
+Target level: ${p.level}
+Constraints: ~1800–2200 words, keep headings as provided.
+Rewrite this story accordingly:
+<<<
+${p.body_en}
+>>>
+`.trim();

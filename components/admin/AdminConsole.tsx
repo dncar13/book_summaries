@@ -29,10 +29,17 @@ const defaultStoryForm: StoryFormState = {
   genre: ''
 };
 
+type TTSSplitMode = 'whole' | 'section';
+
 export function AdminConsole({ runs, uncoveredStories }: Props) {
   const [storyForm, setStoryForm] = useState<StoryFormState>(defaultStoryForm);
   const [isSubmitting, setSubmitting] = useState(false);
+  const [isGeneratingTTS, setGeneratingTTS] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [ttsSlug, setTtsSlug] = useState('');
+  const [ttsSplit, setTtsSplit] = useState<TTSSplitMode>('whole');
+  const [ttsForce, setTtsForce] = useState(false);
+  const [ttsProvider, setTtsProvider] = useState<'google' | 'elevenlabs'>('google');
 
   const statusCounts = useMemo(() => {
     return runs.reduce(
@@ -110,6 +117,53 @@ export function AdminConsole({ runs, uncoveredStories }: Props) {
     }
   }
 
+  async function handleGenerateTTS(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!ttsSlug.trim()) {
+      setFeedback('Slug is required for TTS generation');
+      return;
+    }
+
+    setGeneratingTTS(true);
+    setFeedback(null);
+
+    try {
+      const res = await fetch('/api/tts/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug: ttsSlug.trim(),
+          split: ttsSplit,
+          force: ttsForce,
+          provider: ttsProvider
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error ?? 'Failed to generate TTS');
+      }
+
+      if (data.skipped) {
+        setFeedback(`Skipped ${ttsSlug.trim()} (${data.reason ?? 'already up to date'})`);
+      } else if (ttsSplit === 'section') {
+        const clipCount = data.audioParts?.length ?? 0;
+        setFeedback(`Generated ${clipCount} clips for ${ttsSlug.trim()}`);
+      } else {
+        setFeedback(
+          `Audio ready via ${data.provider ?? 'google'} (${data.bytes ?? 0} bytes): ${data.audioUrl ?? 'no URL returned'}`
+        );
+      }
+
+      setTtsSlug('');
+      setTtsForce(false);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGeneratingTTS(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -167,6 +221,88 @@ export function AdminConsole({ runs, uncoveredStories }: Props) {
               Enqueue story
             </button>
           </div>
+        </form>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-semibold">Generate / Regenerate TTS</h2>
+        <p className="text-sm text-slate-500">Trigger Google/ElevenLabs synthesis for any slug.</p>
+        <form className="mt-4 space-y-4" onSubmit={handleGenerateTTS}>
+          <label className="text-sm font-medium">
+            Story slug
+            <input
+              type="text"
+              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-base"
+              placeholder="deliberate-focus-horizon"
+              value={ttsSlug}
+              onChange={(e) => setTtsSlug(e.target.value)}
+            />
+          </label>
+          <div className="text-sm font-medium">
+            Split mode
+            <div className="mt-1 flex gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="tts-split"
+                  value="whole"
+                  checked={ttsSplit === 'whole'}
+                  onChange={() => setTtsSplit('whole')}
+                />
+                Whole story
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="tts-split"
+                  value="section"
+                  checked={ttsSplit === 'section'}
+                  onChange={() => setTtsSplit('section')}
+                />
+                Section playlist
+              </label>
+            </div>
+          </div>
+          <div className="text-sm font-medium">
+            Provider
+            <div className="mt-1 flex gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="tts-provider"
+                  value="google"
+                  checked={ttsProvider === 'google'}
+                  onChange={() => setTtsProvider('google')}
+                />
+                Google
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="tts-provider"
+                  value="elevenlabs"
+                  checked={ttsProvider === 'elevenlabs'}
+                  onChange={() => setTtsProvider('elevenlabs')}
+                />
+                ElevenLabs
+              </label>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={ttsForce}
+              onChange={(e) => setTtsForce(e.target.checked)}
+            />
+            Force re-generate even if audio exists
+          </label>
+          <button
+            type="submit"
+            className="rounded bg-teal-600 px-4 py-2 font-semibold text-white disabled:opacity-60"
+            disabled={isGeneratingTTS || !ttsSlug.trim()}
+          >
+            {isGeneratingTTS ? 'Generating…' : 'Generate TTS'}
+          </button>
         </form>
       </div>
 

@@ -148,16 +148,59 @@ The Supabase instance includes:
    npm run seed
    ```
 
+## Text-to-Speech Integration
+
+LearnFlow pre-generates MP3 files for every story. ElevenLabs is used when credentials exist, and we automatically hedge with Google TTS for all other cases. Audio files are uploaded to Supabase Storage and the public URL is saved on each `stories.audio_url` row so the reader UI can show a built-in player.
+
+### Environment
+
+Copy the following variables into `.env` (or `.env.local`):
+
+```bash
+# ElevenLabs (optional, fallback is Google TTS)
+ELEVENLABS_API_KEY=your_key_here
+ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL
+ELEVENLABS_MODEL_ID=eleven_monolingual_v1
+
+# Storage destination
+AUDIO_BUCKET=audio-files        # defaults to audio-files
+AUDIO_DEST_DIR=listening        # defaults to listening
+```
+
+`textToSpeech(text, filename)` handles synthesis + upload and returns `{ audioUrl }` so you can wire it into other flows if needed.
+
+### Story audio generator
+
+Run the CLI to backfill or refresh per-story MP3s:
+
+```bash
+npx tsx scripts/generate-story-audio.ts deliberate-focus-horizon
+npx tsx scripts/generate-story-audio.ts decision-waves-lab
+npx tsx scripts/generate-story-audio.ts steady-creative-current
+npx tsx scripts/generate-story-audio.ts all --force   # regenerate everything
+npx tsx scripts/generate-story-audio.ts deliberate-focus-horizon --split=section --force
+```
+
+The script loads stories from Supabase (with a local fallback during development), synthesizes the body text, uploads `${slug}.mp3` to `supabase.storage.from(AUDIO_BUCKET)` under `AUDIO_DEST_DIR`, and updates `stories.audio_url` so the front-end can render `<audio controls>`.
+
+Flags:
+
+- `--split=section` turns the story into a playlist stored under `${AUDIO_DEST_DIR}/sections/<slug>/...` and saves `audio_parts` in the DB.
+- `--provider=eleven` forces ElevenLabs (otherwise Google TTS is the default).
+- `--force` overrides existing audio rows.
+
+From `/admin` you can also trigger one-off TTS generation through the **Generate / Regenerate TTS** panel, which POSTs to `/api/tts/generate` and logs the resulting URLs/clip counts.
+
 ## Agents & Parallel Generation
 - **Service env** – add `SUPABASE_SERVICE_ROLE_KEY`, `AGENT_BATCH_SIZE` (default `4`), and optional `AGENT_LOOP_DELAY_MS` to `.env`. The service key never ships to the browser; it is only used by `/api/agents/enqueue`, the admin console, and `workers/runner.ts`.
-- **Pluggable providers + hedging** – `lib/llm/provider.ts` defines the interface (name, `maxConcurrent`, `callJSON`). `lib/llm/providers/index.ts` registers providers per kind; update this file with your Codex/Cloud provider adapters. `lib/llm/router.ts` fans out the same prompt across providers, validates via Zod, and returns the first success (`Promise.any`). Built-in concurrency control enforces `maxConcurrent` slots per provider.
+- **Pluggable providers + hedging** – `lib/llm/provider.ts` defines the interface (name, `maxConcurrent`, `callJSON`). `lib/llm/providers/openai.ts` and `lib/llm/providers/anthropic.ts` implement adapters, while `lib/llm/providers/index.ts` picks whichever providers have API keys at runtime (covers currently limited to OpenAI). `lib/llm/router.ts` fans out prompts, extracts JSON, validates via Zod, and returns the first success (`Promise.any`) with built-in concurrency caps per provider.
 - **Schemas** – `lib/contentSchemas.ts` exports the `StoryDoc` and `CoverSpec` Zod validators plus TypeScript types. These correspond to the columns in `stories`.
-- **Prompts** – `lib/prompts/story.ts` has `storySystem()`/`storyUser()` plus optional outline + per-section prompts for the two-phase flow. `lib/prompts/cover.ts` contains the CoverSpec agent prompt. `lib/prompts/rewriter.ts` is the readability/safety gate used when you need to tame a story. Use these helpers when wiring Codex jobs so the prompt text always matches code.
+- **Prompts** – `lib/prompts/story.ts` bundles `storySystem()`/`storyUser()`, `outlineUser()`/`sectionUser()`, and the rewriter prompts for readability/safety gates. `lib/prompts/cover.ts` contains the CoverSpec agent prompt. Use these helpers when wiring Codex jobs so the prompt text always matches code.
 - **API enqueue** – `/api/agents/enqueue` accepts `{ kind: 'story'|'cover', items: [...] }`. Each row computes a `job_key` (`story:{slug|topic}`) so duplicates are rejected via a partial unique index on open jobs. The route requires the service-role env.
 - **Runner** – `workers/runner.ts` is the Cloud Code worker. Run via `npx tsx workers/runner.ts story` or `... cover`. Launch as many windows as needed (e.g. 3× story, 2× cover) to reach 16 in-flight jobs with `AGENT_BATCH_SIZE=4`. The runner pulls jobs with the `take_agent_jobs` RPC, calls `hedgeJSON`, writes `stories`, and updates `agent_runs`. It logs failures and keeps looping forever.
 - **Admin UI** – `/admin` (server-rendered) shows the queue, enqueues single stories, and batches “generate covers for uncovered stories.” It uses the service key on the server only. Refresh manually to see new queue snapshots.
-- **Two-phase option** – use `storyOutlineUser()` to lock the outline, then parallelize `storySectionUser()` calls per heading. After sections converge, run `storyUser()` once to add TL;DR, vocab, quiz. The prompts live in `lib/prompts/story.ts` so you can copy/paste straight into Codex.
-- **Quality gates** – plug the `rewriterSystem()`/`rewriterUser()` prompt into a separate queue kind if readability/moderation fails. You can enqueue rewrite jobs that target the same `job_key` so the uniqueness guard prevents racing.
+- **Two-phase option** – use `outlineUser()` to lock the outline, then parallelize `sectionUser()` calls per heading. After sections converge, run `storyUser()` once to add TL;DR, vocab, quiz. The prompts live in `lib/prompts/story.ts` so you can copy/paste straight into Codex.
+- **Quality gates** – plug the `rewriterSystem()`/`rewriterUser()` helpers from `lib/prompts/story.ts` into a separate queue kind if readability/moderation fails. You can enqueue rewrite jobs that target the same `job_key` so the uniqueness guard prevents racing.
 
 ## Analytics + Gamification
 - `lib/eventClient.ts` inserts into `events` with the anon key (insert-only).

@@ -11,8 +11,9 @@
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.43.5",
+    "@supabase/supabase-js": "^2.81.1",
     "classnames": "^2.5.1",
+    "google-tts-api": "^2.0.2",
     "lucide-react": "^0.451.0",
     "next": "14.2.3",
     "next-themes": "^0.2.1",

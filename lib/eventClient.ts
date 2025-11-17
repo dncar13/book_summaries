@@ -29,6 +29,9 @@ export async function logEvent(eventType: EventType, summarySlug?: string) {
       client_session_id: sessionId
     });
   } catch (error) {
-    console.error('Failed to log event', error);
+    // Silently fail if events table doesn't exist yet
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Events logging skipped (table may not exist):', error);
+    }
   }
 }

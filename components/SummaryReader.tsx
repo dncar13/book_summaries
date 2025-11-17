@@ -5,6 +5,9 @@ import type { Summary } from '@/lib/types';
 import { useReadingProgress } from '@/lib/hooks/useReadingProgress';
 import { ProgressBar } from './ProgressBar';
 import { GeneratedCover } from './GeneratedCover';
+import { InteractiveStoryReader } from './InteractiveStoryReader';
+import { AudioPlaylist } from '@/components/AudioPlaylist';
+import { getGlossaryForSummary } from '@/data/glossary';
 
 interface SummaryReaderProps {
   summary: Summary;
@@ -16,6 +19,7 @@ export function SummaryReader({ summary }: SummaryReaderProps) {
   const [fontScale, setFontScale] = useState(1);
   const [liked, setLiked] = useState(false);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const glossary = getGlossaryForSummary(summary.slug);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -87,16 +91,30 @@ export function SummaryReader({ summary }: SummaryReaderProps) {
         <GeneratedCover seed={summary.cover_seed ?? summary.slug} title={summary.title_en} className="h-60 w-full" />
       </div>
 
-      <article
-        className="prose prose-slate mx-auto max-w-3xl text-right leading-8 dark:prose-invert"
-        style={{ fontSize: `${fontScale}rem`, direction: 'rtl' }}
-      >
-        {summary.body_en.split('\n\n').map((paragraph, index) => (
-          <p key={index} dir="ltr" className="font-inter">
-            {paragraph}
-          </p>
-        ))}
-      </article>
+      {summary.audio_parts?.length ? (
+        <div className="mb-4">
+          <AudioPlaylist parts={summary.audio_parts} title="האזן לסיפור" slug={summary.slug} />
+        </div>
+      ) : summary.audio_url ? (
+        <div className="mb-4">
+          <AudioPlaylist parts={[summary.audio_url]} title="האזן לסיפור" slug={summary.slug} />
+        </div>
+      ) : null}
+
+      {glossary ? (
+        <InteractiveStoryReader text={summary.body_en} glossary={glossary} fontScale={fontScale} />
+      ) : (
+        <article
+          className="prose prose-slate mx-auto max-w-3xl text-right leading-8 dark:prose-invert"
+          style={{ fontSize: `${fontScale}rem`, direction: 'rtl' }}
+        >
+          {summary.body_en.split('\n\n').map((paragraph, index) => (
+            <p key={index} dir="ltr" className="font-inter">
+              {paragraph}
+            </p>
+          ))}
+        </article>
+      )}
 
       <div className="mt-8 rounded-3xl bg-slate-100/80 p-6 text-right dark:bg-slate-800/60">
         <p className="text-sm font-semibold text-slate-500">TL;DR בעברית</p>
